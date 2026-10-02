@@ -157,7 +157,7 @@ aws rds create-db-instance \
   --db-subnet-group-name vick_devops_db_subnet_group \
   --vpc-security-group-ids $DB_SG \
   --no-publicly-accessible \
-  --backup-retention-period 7 \
+  --backup-retention-period 1 \
   --storage-encrypted
 
 # NOTE: Multi-AZ RDS takes 10-20 minutes to provision.
