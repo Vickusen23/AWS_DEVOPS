@@ -20,7 +20,7 @@ aws configure set default.region $REGION
 STEP 1: CREATE THE VPC & SUBNETS
 ============================================================
 
-# 1.1 Create the VPC
+# 1.1 Create the VPC.
 VPC_ID=$(aws ec2 create-vpc \
   --cidr-block $VPC_CIDR \
   --query 'Vpc.VpcId' \
