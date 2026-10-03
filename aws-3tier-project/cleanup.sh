@@ -1,7 +1,7 @@
 # 1. Delete Auto Scaling Group (terminates the EC2 instances too)
 aws autoscaling delete-auto-scaling-group --auto-scaling-group-name vick-devops-asg --force-delete
 
-# 2. Delete the Load Balancer
+# 2. Delete the Load Balancer.
 aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN
 
 # 3. Wait ~1 min for the ALB to fully disappear, then delete the Target Group
