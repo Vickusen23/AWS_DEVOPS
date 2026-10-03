@@ -1,0 +1,13 @@
+#If your terminal session is closed (variables lost), run this first to recover them, then run the cleanup above:
+
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=vick_devops_vpc" --query 'Vpcs[0].VpcId' --output text)
+ALB_ARN=$(aws elbv2 describe-load-balancers --names vick-devops-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+TG_ARN=$(aws elbv2 describe-target-groups --names vick-devops-targets --query 'TargetGroups[0].TargetGroupArn' --output text)
+IGW_ID=$(aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=$VPC_ID" --query 'InternetGateways[0].InternetGatewayId' --output text)
+APP_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=vick_devops_app_sg" --query 'SecurityGroups[0].GroupId' --output text)
+DB_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=vick_devops_db_sg" --query 'SecurityGroups[0].GroupId' --output text)
+ALB_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=vick_devops_alb_sg" --query 'SecurityGroups[0].GroupId' --output text)
+NAT_GW1=$(aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=vick_devops_nat_gw_a" --query 'NatGateways[0].NatGatewayId' --output text)
+NAT_GW2=$(aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=vick_devops_nat_gw_b" --query 'NatGateways[0].NatGatewayId' --output text)
+EIP_ALLOC1=$(aws ec2 describe-addresses --query 'Addresses[0].AllocationId' --output text)
+EIP_ALLOC2=$(aws ec2 describe-addresses --query 'Addresses[1].AllocationId' --output text)
