@@ -1,0 +1,230 @@
+AWS CLOUDFORMATION — MASTER NOTES (ZERO TO HERO)
+===============================================
+
+WHAT IS CLOUDFORMATION?
+----------------------
+CloudFormation is AWS's Infrastructure as Code (IaC) service.
+Instead of clicking around the console to build resources, you write
+a text file (YAML or JSON) that describes your infrastructure, and
+AWS builds it for you automatically.
+
+Think of it like this:
+  Recipe (template)  ->  Cooked meal (running infrastructure)
+  One recipe can be reused to cook the same meal every time.
+
+
+PART 1: CORE CONCEPTS
+---------------------
+
+The 4 key terms:
+
+1. TEMPLATE
+   A YAML or JSON file that describes WHAT resources to create and
+   HOW to configure them. This is your code — you store it in Git.
+
+2. STACK
+   When you deploy a template, CloudFormation creates a "stack" —
+   the live, running group of resources built from that template.
+   The stack is the unit of management:
+     - Update the stack  -> resources change
+     - Delete the stack  -> ALL resources inside are deleted
+   This makes cleanup one command instead of twenty.
+
+3. CHANGE SET
+   Before applying an update, a change set shows you a preview of
+   exactly what AWS will create, modify, or DELETE — so there are
+   no surprises.
+
+4. DRIFT DETECTION
+   Detects when someone manually changes a resource outside of
+   CloudFormation (e.g., edited a security group in the console).
+   It tells you reality no longer matches your template.
+
+
+PART 2: ANATOMY OF A TEMPLATE
+-----------------------------
+A template can have up to 9 sections. Only Resources is required.
+
+AWSTemplateFormatVersion: "2010-09-09"   # File format version (fixed)
+Description: What this template builds    # Human-readable summary
+
+Parameters:    # Inputs you pass in at deploy time (env name, instance type)
+Mappings:      # Static lookup tables (e.g., AMIs per region)
+Conditions:    # If-logic: create this resource only when X is true
+Transform:     # Macros that expand your template (e.g., AWS SAM)
+
+Resources:     # THE ONLY REQUIRED SECTION — your actual infrastructure
+  MyResource:
+    Type: AWS::Service::ResourceType
+    Properties:
+      Property1: Value
+
+Outputs:       # Values printed after deployment (URLs, IPs, IDs)
+
+Golden rule: put anything that might change between environments
+(dev/staging/prod) into Parameters. Keep Resources generic.
+
+
+PART 3: THE 5 FUNCTIONS YOU WILL USE DAILY
+------------------------------------------
+
+!Ref        -> Get the ID of a resource or the value of a parameter
+                Example: !Ref WebServerSecurityGroup
+
+!GetAtt     -> Get a specific attribute of a resource
+                Example: !GetAtt WebServerInstance.PublicIp
+
+!Sub        -> Insert variables into a string
+                Example: !Sub "${EnvironmentName}-web-server"
+
+!Join       -> Concatenate values with a delimiter
+                Example: !Join [ "-", [ "prod", "web" ] ]  -> "prod-web"
+
+!FindInMap  -> Look up a value in a Mappings table
+                Example: !FindInMap [ RegionMap, !Ref AWS::Region, AMI ]
+
+
+PART 4: HANDS-ON PROJECT — WEB SERVER STACK
+-------------------------------------------
+Goal: deploy a complete web server with one command:
+  1. Security Group (SSH port 22 + HTTP port 80)
+  2. EC2 instance (latest Amazon Linux 2023 AMI, resolved automatically)
+  3. User Data script that installs Apache and serves a custom page
+  4. Outputs showing the live URL and public IP
+
+
+STEP 1 — Create the template (webserver.yaml)
+---------------------------------------------
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Production-ready single-instance Apache web server
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment label
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t3.micro, t3.small]
+    Description: EC2 compute instance type
+
+Resources:
+  # 1. Security Group - the firewall for the server
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and HTTP ingress traffic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0      # HTTP from anywhere
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0      # SSH from anywhere
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-web-sg"
+
+  # 2. EC2 Instance - the web server itself
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      # Always fetches the LATEST Amazon Linux 2023 AMI for the region
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      SecurityGroups:
+        - !Ref WebServerSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          dnf update -y
+          dnf install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<h1>Welcome to CloudFormation Web Server [${EnvironmentName}]</h1>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-web-server"
+
+Outputs:
+  WebsiteURL:
+    Description: HTTP URL for the web server
+    Value: !Sub "http://${WebServerInstance.PublicDnsName}"
+
+  PublicIP:
+    Description: Public IP of the web server
+    Value: !GetAtt WebServerInstance.PublicIp
+
+
+STEP 2 — Deploy (one command)
+-----------------------------
+Run in the same folder as webserver.yaml:
+
+  aws cloudformation deploy \
+    --template-file webserver.yaml \
+    --stack-name my-web-server-stack \
+    --parameter-overrides EnvironmentName=dev InstanceType=t2.micro
+
+TIP: always validate the template first (catches syntax errors early):
+
+  aws cloudformation validate-template --template-body file://webserver.yaml
+
+
+STEP 3 — Verify
+---------------
+# Get the live website URL and IP:
+aws cloudformation describe-stacks \
+  --stack-name my-web-server-stack \
+  --query "Stacks[0].Outputs" \
+  --output table
+
+# Watch resources being created in real time:
+aws cloudformation describe-stack-events \
+  --stack-name my-web-server-stack \
+  --query "StackEvents[*].[LogicalResourceId, ResourceType, ResourceStatus]" \
+  --output table
+
+Open the WebsiteURL in your browser to see the Apache page.
+
+
+STEP 4 — Cleanup (one command deletes everything)
+-------------------------------------------------
+  aws cloudformation delete-stack --stack-name my-web-server-stack
+
+
+PART 5: PRODUCTION BEST PRACTICES
+---------------------------------
+1. NEVER hardcode secrets or AMI IDs.
+   - AMIs:      use dynamic references  {{resolve:ssm:...}}
+   - Secrets:   use {{resolve:secretsmanager:...}} or SSM parameters
+
+2. SPLIT BIG PROJECTS into nested stacks.
+   e.g., one stack for the VPC/network, another for the application.
+   Like functions in programming — reusable and easier to debug.
+
+3. PROTECT IMPORTANT DATA with DeletionPolicy: Retain
+   On resources like S3 buckets or databases, so deleting the stack
+   does NOT delete your data.
+
+4. ALWAYS VALIDATE in CI/CD before deploying:
+   aws cloudformation validate-template --template-body file://webserver.yaml
+
+5. PREVIEW CHANGES with change sets before updating production:
+   aws cloudformation create-change-set ...
+   (or use "deploy --no-fail-on-empty-changeset" pipelines)
+
+
+QUICK MEMORY AIDS
+-----------------
+Template  = the recipe        (code, in Git)
+Stack     = the meal          (live resources)
+ChangeSet = taste before serving (preview of changes)
+Drift     = someone changed the recipe while cooking
+!Ref      = "give me its ID"     |  !GetAtt = "give me its property"
+!Sub      = "fill in this blank" |  !Join   = "glue strings together"
